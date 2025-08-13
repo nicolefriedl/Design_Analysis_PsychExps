@@ -1,0 +1,285 @@
+---
+title: "Homework 5" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Study 1: Predicting per-capita public expenditure based on metropolitan population levels
+
+A sociologist wants to know whether the percentage of a state’s population living in a metropolitan
+area can predict per-capita state and local public expenditure. Put simply, do cities cost the state
+more money? She acquired data from forty-eight states (excluding Hawaii and Alaska because she
+does not have enough funding to travel out of the continental U.S.). Data include how much public
+money (in dollars) is spent on each individual on average for the year of 1960 (`Ex`), the
+percentage of population living in metropolitan areas in each state (`MET`), and a dichotomous
+variable denoting whether or not it is relatively costly to maintain public infrastructure (`grp`).
+
+**Codebook:**   
+
+- `ex`: Per capita state and local public expenditures ($). Values: 40.14 - 1346.96
+- `met`: Metro population, i.e., percentage of population living in standard metropolitan areas. Values: 0-86.5
+- `grp`: Low infrastructure maintenance costs (-0.5), high infrastructure maintenance costs (+0.5). Values: -0.5, +0.5
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(Matrix, exclude = c("expand", "unpack", "pack"))
+library(lme4)
+library(broom)
+library(skimr)
+library(effects)
+library(car, exclude = c("recode", "some"))
+
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+
+peta <- function(compact, augmented) {
+  sse_c <- sum(residuals(compact)^2)
+  sse_a <- sum(residuals(augmented)^2)
+  
+  (sse_c - sse_a)/sse_c
+}
+```
+
+### 1. Read in your data (hw_19_data_population.csv), convert names to snake case if needed, and use a function to check whether your case conversion was successful. Are there any missing data entries? Are you concerned? Why or why not?
+
+```{r}
+d <- read_csv(here::here(path_data, "hw_19_data_population.csv"),
+              show_col_types = FALSE) |> 
+  janitor::clean_names("snake") |> 
+  glimpse()
+skim(d)
+```
+I am not concerned since there are no missing values!
+
+### 2. The researcher does not have an a priori idea about the shape of the relationship between percentage of population living in metropolitan areas and public expenditures. Help out the researcher by comparing linear and quadratic models. Do not center your predictors yet. Which model would be more appropriate?
+
+```{r}
+#Linear model
+
+m_1 <- lm(ex ~ met, data = d)
+summary(m_1)
+
+#Quad model 
+m_2 <- lm(ex ~ met + I(met^2), data = d)
+summary(m_2)
+```
+Quadratic model would be more appropriate. 
+
+### 3. Now fit a new model with linear and quadratic trends for mean-centered metro population. Compare this model (parameter estimates, SE, overall model R2) to a model with only a linear predictor for metro population (uncentered). Do any values change, and if so, why?
+```{r}
+ d$met_centered <- d$met - mean(d$met)
+
+m_1 <- lm(ex ~ met, data = d)
+summary(m_1)
+
+m_3 <- lm(ex ~ met_centered + I(met_centered^2), data = d)
+summary(m_3)
+```
+When comparing a linear model with uncentered met (m_1) to a quadratic model with mean-centered met (m_3), the intercept, met/met_centered coefficient, their standard errors, t-values, p-values, residual standard error, and R-squared values change. This is due to mean-centering shifting the predictor's origin and m_3 providing a significantly better fit. The I(met^2) term, overall R-squared (when comparing m_2 to m_3), adjusted R-squared (when comparing m_2 to m_3), F-statistic, and its p-value remain unchanged, as the quadratic term's shape and overall model fit are unaffected by mean-centering.
+
+### 4. The researcher knows that maintaining public infrastructure (roads, utilities, subways, etc.) is relatively more expensive in some states than in other states. She wants to test whether the non-linear relationship between metro population and public expenditures depends on whether a state is a low or high maintenance-cost state. Test this hypothesis. Interpret each of the coefficients of this model.
+
+```{r}
+interaction_model <- lm(ex ~ met_centered * grp + I(met_centered^2) * grp, data = d)
+summary(interaction_model)
+
+simplified_model <- lm(ex ~ met_centered + I(met_centered^2) + grp, data = d)
+summary(simplified_model)
+
+anova_comparison <- anova(simplified_model, interaction_model)
+print(anova_comparison)
+```
+The interaction model significantly predicts per-capita public expenditures, accounting for approximately 33.64% of the variance. The intercept, representing the predicted expenditure for low-cost states with the mean metro population, is significantly different from zero. For low-cost states, a 1% increase in the centered metro population is associated with a $4.36 increase in expenditures, and there's a significant quadratic effect of the metro population. While the difference in expenditures between high and low-cost states at the mean metro population is not significant, the interaction between infrastructure costs and the quadratic effect of the metro population is significant. This indicates that the non-linear relationship between metro population and expenditures differs between high and low-cost states. The ANOVA comparison further supports that the interaction model is a better fit than a model without interaction terms.
+
+### 5. Make a publication quality figure depicting the non-linear model fit conditioned on levels of maintenance costs
+```{r}
+new_data <- expand.grid(met_centered = seq(min(d$met_centered), max(d$met_centered), length.out = 100),
+                        grp = c(-0.5, 0.5))
+
+predictions <- predict(interaction_model, newdata = new_data, interval = "confidence")
+new_data <- cbind(new_data, predictions)
+
+ggplot() + 
+  geom_point(data = d, aes(x = met_centered, y = ex, color = factor(grp)), alpha = 0.7, linewidth = 0.5) +
+  geom_line(data = new_data, aes(x = met_centered, y = fit, color = factor(grp)), linewidth = 1) +
+  geom_ribbon(data = new_data, aes(x = met_centered, ymin = lwr, ymax = upr, fill = factor(grp)), alpha = 0.2, color = NA) +
+  labs(title = "Per-Capita Public Expenditure vs. Metro Population",
+       x = "Metro Population (Centered)",
+       y = "Per-Capita Public Expenditure ($)",
+       color = "Infrastructure Costs",
+       fill = "Infrastructure Costs") +
+  scale_color_discrete(labels = c("Low", "High")) +
+  scale_fill_discrete(labels = c("Low", "High")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    legend.position = "top",
+    panel.grid.minor = element_blank()
+  )
+```
+
+## Part 2: Study 2: Interactive Effects of Sleep Deprivation and Caffeine Intake on Cognitive Performance - The Moderating Role of Baseline Anxiety
+
+Cognitive performance is influenced by a complex interplay of physiological and psychological
+factors, particularly in contexts where sleep deprivation and stimulant use are prevalent. While
+caffeine is widely consumed to counteract cognitive deficits associated with insufficient sleep, its
+efficacy may depend on individual differences in baseline anxiety. The present study examines the
+interactive effects of sleep deprivation and caffeine intake on cognitive performance, with a focus
+on whether baseline anxiety moderates these effects. Thirty-five participants completed cognitive
+tasks under varying sleep and caffeine conditions, allowing for an investigation of both main
+effects and interaction effects on performance outcomes. Baseline anxiety was assessed prior to
+testing to evaluate its potential role in modulating cognitive responses to sleep loss and caffeine
+consumption. The findings contribute to a more nuanced understanding of how cognitive function
+is affected by physiological stressors and stimulants, with implications for optimizing performance
+in high-demand environments.
+
+**Codebook:**   
+
+- `subid`: Subject ID codes. Values: 1-35
+- `sleep`: Amount of sleep deprivation as reported by the participant. Values: Deprived or Rested
+- `caffeine`: Indicator of caffeine consumption. Values: Yes or No
+- `anxiety`: Ratings of how much anxiety participant experiences based on a standardized test. Values: 1-100
+- `performance`: The aggregate score on a standardized test to evaluate cognitive performance levels. Values: 1-100
+
+### 1. Read in your data (hw_19_data.csv), convert names to snake case if needed, and use a function to check whether your case conversion was successful. Are there any missing data entries? Are you concerned? Why or why not?
+
+```{r}
+d2 <- read_csv(here::here(path_data, "hw_19_data.csv"),
+              show_col_types = FALSE) |> 
+  janitor::clean_names("snake") |> 
+  glimpse()
+skim(d)
+
+d2 <- d2 |> filter(!is.na(rested_yes) & !is.na(deprived_no))
+```
+I am slightly concerned with some missing data so I dropped them. 
+
+### 2. Prepare your data for analysis. What format is your data in? Ensure that your data is in long-format for the rest of the analysis. Make sure your variables are appropriately classed and centered for fitting regression models. This should include, for instance, making sure there aren't any numeric variables that were accidentally read in as characters. Create faceted plots showing the effects of caffeine, sleep, and anxiety on performance for each subject ID. To make a TA smile, try doing this using the `map()` function!
+
+```{r}
+d2_long <- d2 |> 
+  pivot_longer(cols = starts_with("deprived") | starts_with("rested"),
+               names_to = c("sleep", "caffeine"),
+               names_pattern = "(deprived|rested)_(no|yes)",
+               values_to = "performance") |> 
+  mutate(
+    sleep = factor(sleep, levels = c("deprived", "rested"), labels = c("Deprived", "Rested")),
+    caffeine = factor(caffeine, levels = c("no", "yes"), labels = c("No", "Yes")),
+    anxiety = scale(anxiety, center = TRUE, scale = FALSE) # Center anxiety
+  )
+
+glimpse(d2_long)
+
+plot_list <- map(c("anxiety"), ~ ggplot(d2_long, aes(x = .data[[.x]], y = performance)) +
+                    geom_point() +
+                    geom_smooth(method = "lm", se = FALSE) +
+                    facet_wrap(~ id) +
+                    labs(title = paste("Effect of", .x, "on Performance"),
+                         x = .x,
+                         y = "Performance"))
+ 
+print(plot_list)
+```
+My data was in wide format, now it is in long format. 
+
+### 3. Testing appropriate model for the reseachers’ original hypothesis Run the model. Make sure to account for repeated measures and assume that the individual differences between participants in `caffeine`, `sleep` and `anxiety` do not influence/affect `performance` when specifying the mixed-effects linear model. Generate F-statistics for each predictor.
+
+```{r}
+model_mixed <- lmer(performance ~ anxiety + caffeine + sleep + (1 | id), data = d2_long)
+summary(model_mixed)
+anova(model_mixed, type = 3, test = "F") 
+
+model_compact <- lm(performance ~ anxiety + caffeine + sleep, data = d2_long)  
+summary(model_compact)
+
+peta_value <- peta(model_compact, model_mixed)
+print(peta_value)
+
+confint(model_mixed, level = 0.95)
+```
+
+### 4. Write an appropriate, formal summary of the results, as if you were giving this report to a scientific colleague. In addition to a brief introduction to the study and its goals, your report should include appropriate b values and F-statistics (including degrees of freedom). You should report every predictor (aside from the intercept), regardless of significance. State whether the researchers’ hypothesis was confirmed.
+
+This study aimed to investigate the effects of anxiety, caffeine consumption, and sleep condition on performance in a sample of individuals. A linear mixed model was used to assess the fixed effects of anxiety, caffeine, and sleep, while accounting for random intercepts by participant ID. The fixed effects of anxiety, caffeine, and sleep, as well as their corresponding confidence intervals, are reported below.
+
+Fixed Effects:
+
+Anxiety: There was a significant negative effect of anxiety on performance, such that a one-unit increase in anxiety was associated with a 0.47 unit decrease in performance, b = -0.47, F(1, 118) = 49.34, p < .001, 95% CI [-0.60, -0.34].
+Caffeine: Caffeine had a marginally significant positive effect on performance. Specifically, participants who consumed caffeine performed 2.33 units better compared to those who did not consume caffeine, b = 2.33, F(1, 118) = 2.98, p = .087, 95% CI [-0.29, 4.95].
+Sleep (Rested vs. Not Rested): Sleep condition had a highly significant positive effect on performance. Specifically, being well-rested was associated with a 23.83 unit increase in performance, b = 23.83, F(1, 118) = 312.23, p < .001, 95% CI [21.21, 26.45].
+
+Conclusion:
+The researchers’ hypothesis was partially confirmed, as anxiety and sleep conditions significantly influenced performance, with a significant negative relationship for anxiety and a significant positive relationship for sleep. The effect of caffeine was marginally significant, suggesting a potential but less robust influence on performance. The small peta value indicates that including random intercepts for participants had minimal effect on the model's overall explanatory power.
+
+### 5. Create a publication quality graph to accompany your write-up in Question-9 above. Generate one plot for the three-way interaction and another one for two-way interactions between the dichotomous variables. Hint: What type of interaction are we testing for? This should suggest what plots to generate for the two cases
+
+```{r}
+#Threeway
+interaction_data <- expand.grid(
+  anxiety = seq(min(d2_long$anxiety), max(d2_long$anxiety), length.out = 100),
+  caffeine = c("No", "Yes"),
+  sleep = c("Deprived", "Rested")  
+)
+
+interaction_data$caffeine <- factor(interaction_data$caffeine, levels = levels(d2_long$caffeine))
+interaction_data$sleep <- factor(interaction_data$sleep, levels = levels(d2_long$sleep))
+
+interaction_data$performance <- predict(model_mixed, newdata = interaction_data, re.form = NA)
+
+ggplot(interaction_data, aes(x = anxiety, y = performance, color = caffeine, linetype = sleep)) +
+  geom_line(size = 1) +
+  labs(title = "Three-Way Interaction of Anxiety, Caffeine, and Sleep on Performance",
+       x = "Anxiety", y = "Performance") +
+  theme_minimal() +
+  scale_color_manual(values = c("No" = "purple", "Yes" = "orange")) +
+  scale_linetype_manual(values = c("Deprived" = "dotted", "Rested" = "solid")) +
+  theme(legend.position = "bottom")
+
+#Twoway
+interaction_data_2way <- expand.grid(
+  anxiety = median(d2_long$anxiety),  
+  caffeine = c("No", "Yes"),
+  sleep = c("Deprived", "Rested")
+)
+
+interaction_data_2way$caffeine <- factor(interaction_data_2way$caffeine, levels = levels(d2_long$caffeine))
+interaction_data_2way$sleep <- factor(interaction_data_2way$sleep, levels = levels(d2_long$sleep))
+
+interaction_data_2way$performance <- predict(model_mixed, newdata = interaction_data_2way, re.form = NA)
+
+ggplot(interaction_data_2way, aes(x = caffeine, y = performance, color = sleep, group = sleep)) +
+  geom_line(size = 1) +
+  labs(title = "Two-Way Interaction of Caffeine and Sleep on Performance",
+       x = "Caffeine", y = "Performance") +
+  theme_minimal() +
+  scale_color_manual(values = c("Deprived" = "orange", "Rested" = "green")) +
+  theme(legend.position = "bottom")
+
+```
+
+## Wrap up.
+
+###1. Please document questions where you used ChatGPT or other generative LLMs for assistance. Remember that this must include the corresponding exam question number, the input question you provided to the LLM, and the response you received. If you did not use any generative LLMs for this exam, please indicate that below. (1)
+
+None
+
+###2. How many hours did this assignment take you? (1)
+
+7 hours. 
+
+
