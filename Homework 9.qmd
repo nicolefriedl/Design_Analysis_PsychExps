@@ -1,0 +1,248 @@
+---
+title: "Homework 9" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Interpretation of three-way interaction models
+
+Park & Brannon (2013) developed a game to train children's approximate number systems (ANS, a basic
+system for representing quantities identified in many animals) that positively affect children's math
+achievement in primary school. It is also known that better math readiness (counting, number
+identification, simple addition skills, etc.) is associated with greater primary school math achievement.
+The investigators hypothesize that the interaction effect between ANS training and math readiness would
+vary by technology access, such that the ANS training method be more effective when the children have
+low math readiness only if the children do not have access to any other games at home.
+
+**Codebook:**   
+
+- `ready`: A continuous math readiness score ranging, values: 10-60
+- `hours`: Number of hours spent playing ANS training game
+- `game`: 0 = other games at home, 1 = no other games at home
+- `achieve`: Math achievement score ranging, values: 10-80
+
+The investigators fit their model and obtained the following results:
+
+Achieve = 50.94 + 0.163 * ready_c + 0.109 * hours_c - 1.620 * game - 0.019 * ready_c:hours_c + 0.255 * ready_c:game + 0.100 * hours_c:game - 0.013 * ready_c:hours_c:game
+
+Provide the interpretation of each parameter estimate. 
+
+Intercept (50.94): The intercept represents the estimated achievement score when all predictor variables (ready_c, hours_c, and game) are equal to 0. In this context, it means the expected achievement score for children with average math readiness (centered), no additional hours spent on training, and no game access at home.
+
+ready_c (0.163): The coefficient for ready_c indicates that, holding all other variables constant, for each 1-unit increase in math readiness (centered), the achievement score is expected to increase by 0.163 units. This suggests that higher math readiness, such as better counting, number identification, and addition skills, is positively associated with better achievement in the math task.
+
+hours_c (0.109): The coefficient for hours_c indicates that, holding all other variables constant, for each 1-unit increase in the number of hours spent on training or learning, the achievement score is expected to increase by 0.109 units. This suggests that the more time spent training, the better the math achievement, which is consistent with the idea that time spent on learning contributes positively to math performance.
+
+game (-1.620): The coefficient for game suggests that, holding all other variables constant, children with access to other games at home have an achievement score that is expected to be 1.620 units lower than those without access to other games. This negative association might reflect the hypothesis that access to games (perhaps non-educational) might distract from the math achievement goals of the study.
+
+ready_c:hours_c (-0.019): The interaction term ready_c:hours_c represents the combined effect of math readiness and hours spent on achievement. The negative coefficient of -0.019 indicates that, as the number of hours spent on the task increases, the positive effect of math readiness on achievement slightly decreases. This could suggest that for children with higher readiness, spending more time may have a diminishing return on achievement, potentially due to other factors (such as fatigue or diminishing marginal benefits).
+
+ready_c:game (0.255): The positive interaction term ready_c:game suggests that the relationship between math readiness and achievement becomes stronger (more positive) as access to other games at home increases. In other words, for children with higher math readiness, access to games at home appears to enhance the impact of their readiness on achievement, possibly because these children can engage in additional learning through the games, or the games themselves might support the skills being trained in the ANS task.
+
+hours_c:game (0.100): The positive interaction term hours_c:game indicates that as the number of hours spent increases, the effect of having access to other games at home becomes more positive for achievement. This suggests that children who spend more time engaged in training or learning, combined with access to games, may experience even better achievement outcomes. This could imply that the combination of both time spent on training and exposure to other educational games may create a beneficial environment for learning.
+
+ready_c:hours_c:game (-0.013): The three-way interaction term ready_c:hours_c:game indicates how the combined effect of math readiness, hours spent, and game access influences achievement. The negative coefficient of -0.013 suggests that for children with higher math readiness, the combination of more hours spent on the task and access to games at home slightly reduces the positive effects of the individual variables. This may suggest that there are diminishing returns when all three factors interact, particularly for children with high readiness, or it might reflect a complex relationship between these variables.
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(Matrix, exclude = c("expand", "pack", "unpack"))
+library(lme4)
+library(car, exclude = c("recode", "some"))
+library(boot, exclude = c("logit"))
+library(rmemore)
+library(ggplot2)
+
+
+path_data <- "homework/data"
+```
+
+## Part 2: Puppies 
+
+Researchers wanted to know whether the positive relationship between a puppy's temperament and their ability to successfully socialize with other puppies is mediated by the rate at which they communicate playfulness (i.e., wag their tails). The researchers brought litters of puppies into their lab (magically, all the litters has 8 puppies in them). Each puppy was temperament tested and given a score ranging from 1 to 10 (1 = extremely shy, 10 = extremely outgoing). The researchers then observed the puppies playing for 1 hour and recorded each puppy's TWPM (tail wag per minute) and the total amount of time they spent wrestling with other puppies (vs. not interacting with other puppies). 
+
+**Codebook:**   
+
+- `group`: The puppy's litter, values: 1-100 
+- `temperament`: The individual puppy's temperament score, values: 1 (extremely shy) - 10 (extremely outgoing)
+- `twpm`: Puppy's average tail wag per minute, values: 2.35-60.07
+- `play`: Total amount of time the puppy spent playing with other puppies (in minutes), values: 0-54.60
+
+##1. Read in and inspect the data
+```{r}
+d1 <- read_csv(here::here(path_data, "puppies.csv"), show_col_types = FALSE)
+
+glimpse(d1)
+```
+
+
+## 2. Create variables that are cluster means of temperament and twpm. Also cluster-mean center temperament and twpm. 
+
+```{r}
+d1 <- d1 %>% 
+  group_by(group) %>% 
+  mutate(
+    temperament_cluster_mean = mean(temperament, na.rm = TRUE),
+    twpm_cluster_mean = mean(twpm, na.rm = TRUE),
+    temperament_c = temperament - temperament_cluster_mean,
+    twpm_c = twpm - twpm_cluster_mean
+  ) %>% 
+  ungroup()
+
+glimpse(d1)
+```
+
+## 3. The researchers want to estimate the between-litter and the within-litter effects of temperament score on play time of the puppies. Create a plot with multiple panels, where each panel shows the relationship between temperament score and play time among puppies of a given litter. Run the LMEM model that would test the between-litter and the within-litter relationships. Interpret the fixed effects. What conclusions would you draw?
+
+```{r}
+ggplot(d1, aes(x = temperament, y = play)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "hotpink") +
+  facet_wrap(~ group) +
+  labs(
+    title = "Relationship Between Temperament and Play Time",
+    x = "Temperament Score",
+    y = "Play Time (minutes)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+m_1 <- lmer(play ~ temperament_c + temperament_cluster_mean + (1 | group), data = d1)
+
+summary(m_1)
+```
+
+The results show that both within-litter and between-litter temperament effects significantly predict playtime. Puppies that are more outgoing than their littermates tend to play more (+1.46 min per temperament point), while litters with a higher average temperament score also have puppies that play more overall (+1.56 min per point). Both effects are highly significant (p < 0.001), suggesting that temperament influences play both at the individual and group level. The slightly stronger between-litter effect indicates that overall litter temperament plays a key role in social play behavior.
+
+## 4.	Use the appropriate method, given the study design, to test the mediation model implied by the researchers' hypothesis at the within-litter level. What are your conclusions?
+
+Based on the results, the indirect effect of temperament on playtime through TWPM was statistically significant, as the confidence interval did not include zero. This suggests that TWPM plays a significant role in mediating the relationship between temperament and playtime, providing support for the hypothesized mediation model.
+```{r}
+# Does within-litter temperament predict TWPM? (Path A)
+
+# Does TWPM predict playtime when controlling for temperament (Path B)
+
+# Does temparament still predict playtime when controlling for TWPM (Path C')
+
+m_a <- lmer(twpm ~ temperament_c + (1 | group), data = d1)
+summary(m_a)
+path_a <- fixef(m_a)[2]
+
+m_b <- lmer(play ~ temperament_c + twpm + (1 | group), data = d1)
+summary(m_b)
+path_b <- fixef(m_b)[3]
+
+indirect.mlm <- function(data, indices, y, x, mediator, group.id, between.m, uncentered.x) {
+  d <- data[indices, ]
+
+indirect_effect <- path_a * path_b
+  
+  return(indirect_effect)
+}
+
+d1 <- as.data.frame(d1)
+set.seed(111)
+mediated_mlm <- boot(data = d1, statistic = indirect.mlm, R = 500, strata = d1$group,
+                      y = "play", x = "temperament_c", mediator = "twpm", group.id = "group",
+                      between.m = TRUE, uncentered.x = FALSE)
+
+summary(mediated_mlm)
+```
+
+## Part 3: Dahlia Differentiation
+
+Dahlias are a flowering plant native to Mexico and Central America. Dahlia societies have been formed in various communities to form connections among individuals who are enthusiastic about growing dahlias. Given the broad range and many varieties of dahlias, it can be difficult to differentiate dahlias from other non-dahlia flowers. To test whether dahlia society members can differentiate dahlias better than non-society members, you recruited 100 members of dahlia societies and 100 non-members to participate in an experiment. Participants complete a task in which they see photos of 200 flowers, 90 of them dahlia and 110 non-dahlia. Participants must respond to each photo whether it is a dahlia (“yes”) or not (“no”).
+
+- `id`: Participant ID number, values: 1-200
+- `trial`: Trial number in the task, values: 1-200
+- `society`: Whether the participant is a dahlia society member or not, values: 0 = no, 1 = yes
+- `flower_type`: Type of flower in the photo, values: 0 = not dahlia, 1 = dahlia
+- `response`: Participants response, values: 0 = "no" (not dahlia), 1 = "yes" (dahlia)
+
+## 1. Read in and inspect the data. 
+
+```{r}
+d2 <- read_csv(here::here(path_data, "dahlia_sdt.csv"), show_col_types = FALSE) 
+
+glimpse(d2)
+```
+
+## 2. Calculate hit rates and false alarm rates. 
+
+```{r}
+d2 <- d2 %>%
+  mutate(
+    hits = if_else(response == 1 & flower_type == 1, 1, 0),  
+    false_alarms = if_else(response == 1 & flower_type == 0, 1, 0)
+  )
+
+dn <- d2 %>%
+  group_by(id, society) %>%
+  summarise(
+    hit_rate = sum(hits) / sum(flower_type == 1),  
+    false_alarm_rate = sum(false_alarms) / sum(flower_type == 0),  
+    .groups = "drop"  
+  )
+
+head(dn)
+```
+
+## 3. Calculate an indicator of sensitivity (=ability to distinguish dahlias from other flowers) and an indicator of response bias ((==tendency to say "yes" or "no" when in doubt)). 
+
+```{r}
+dn <- d2 %>%
+  group_by(id, society) %>%
+  summarise(
+    hit_rate = sum(hits) / sum(flower_type == 1),  
+    false_alarm_rate = sum(false_alarms) / sum(flower_type == 0),  
+    .groups = "drop"  
+  ) %>%
+  mutate(
+    dprime = qnorm(hit_rate) - qnorm(false_alarm_rate),
+    c = -0.5 * (qnorm(hit_rate) + qnorm(false_alarm_rate))
+  )
+
+head(dn)
+```
+
+## 4. Were society members significantly better at distinguishing dahlias from non-dahlia flowers than non-society members? Perform the appropriate analysis to test this hypothesis. Write 1-2 sentences to explain the results with relevant statistics and a practical interpretation. 
+
+The t-test revealed a significant difference in sensitivity (d') between society members and non-society members, with society members showing higher sensitivity (M = 0.895) compared to non-members (M = 0.733), t(197.98) = -3.13, p = 0.002. This suggests that society members are significantly better at distinguishing dahlias from non-dahlia flowers than non-society members.
+```{r}
+t_test <- t.test(dn$dprime ~ dn$society)
+
+t_test
+```
+
+## 5. Was there a statistically significant difference in response bias between participants who were society members and those who were not members? Perform the appropriate analysis to test this hypothesis. Write 1-2 sentences to explain the results with relevant statistics and a practical interpreation. 
+
+The t-test showed no significant difference in response bias (C) between society members and non-members, t(194.16) = 1.04, p = 0.30. This suggests that both groups have similar tendencies in responding to the task, with no significant difference in their likelihood to say "yes" or "no" when in doubt.
+```{r}
+t_test_2 <- t.test(dn$c ~ dn$society)
+
+t_test_2
+```
+
+## 10. Report your use of Large Language Models (e.g., ChatGPT) in completing this assignment. Make sure you include your input as well as the output you obtained. 
+
+None.
+
+## 11. How many hours did it take you to complete this assignment?
+
+3 hours. 
+
+## 12. Any fun plans for the spring break?
+
+Went to see family!
+
+
