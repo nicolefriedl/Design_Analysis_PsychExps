@@ -1,0 +1,187 @@
+---
+title: "Homework 3" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Data Analysis
+
+It has consistently been found that people perceive their own group as more variable (i.e., more heterogeneous) than other groups which they are not part of. For example, students at UW-Madison may believe that “Badgers” are more diverse than “Gophers” (students at the University
+
+of Minnesota). In this hypothetical study, psychologists aim to elucidate the mechanism behind ingroup-outgroup perception. Participants were undergraduate students recruited from UW-Madison and were asked to rate how heterogenous they believe a target group of students were.
+
+Participants were randomly assigned to two conditions: the ingroup condition, where the
+participants rated students majoring in the same subjects as the participants, and the outgroup condition, where the participants rated students majoring in different subjects than themselves.
+
+The investigators wanted to explore two different variables which they believed to mediate the relationship between the group membership (ingroup vs. outgroup) and perceived heterogeneity of the group: 
+1) the number of individuals in the target group a participant knows personally, and
+2) the number of subgroups the participant can name within the target group
+
+
+**Codebook:**   
+
+- `condition`
+- `heterog` 
+- `individ`  
+- `subgr` 
+- `like`
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(lavaan)
+library(effects)
+library(beepr)
+library(dplyr)
+library(corrplot)
+
+theme_set(theme_classic()) 
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+
+peta <- function(compact, augmented) {
+  sse_c <- sum(residuals(compact)^2)
+  sse_a <- sum(residuals(augmented)^2)
+  
+  (sse_c - sse_a)/sse_c
+}
+```
+
+## 1. Data preparation. Read hw_17_data.csv into R
+
+```{r}
+data <- read_csv(here::here(path_data, "hw_17_data.csv"),
+              show_col_types = FALSE) |>
+  janitor::clean_names()
+  glimpse(data)
+```
+
+
+## 2. Explore univariate statistics (i.e., M, SD) of the variables.
+
+```{r}
+summary(data)
+
+vars <- c("heterog", "individ", "subgr", "like")  
+
+univariate_stats <- data.frame(
+  Variable = vars,
+  Mean = sapply(vars, function(var) mean(data[[var]], na.rm = TRUE)),
+  SD = sapply(vars, function(var) sd(data[[var]], na.rm = TRUE))
+)
+
+print(univariate_stats)
+```
+
+## 3. Use a function we learned in lab to loop through all focal variables and create a histogram for each one of the variables. Label the histograms appropriately with variable names
+```{r}
+data |> 
+  select(-condition) |>  
+  names() |> 
+  map(\(var) hist(data |> pull(var), main = var, xlab = var, col = "hotpink", border = "black"))
+```
+
+
+## 4.	Use a function we learned in lab to create a plot showing correlations across all possible pairs of variables. Visualize the magnitude of the correlations in two different ways. What do you think of the theorized mediation model in the context of these correlations?
+```{r}
+cor_matrix <- data |> 
+  select(-condition) |>  
+  cor()
+
+corrplot(cor_matrix)
+
+corrplot::corrplot.mixed(cor_matrix,
+                         upper = "number",  
+                         lower = "square",  
+                         tl.pos = "d"        
+)
+```
+- The strong positive correlation between subgr and heterog (0.72) is consistent with our theory. It suggests that naming more subgroups is associated with perceiving greater heterogeneity.
+- The moderate positive correlation between individ and heterog (0.52) also lends support, indicating that knowing more individuals is associated with perceiving greater heterogeneity.
+- The positive correlation between individ and subgr suggests that these two mediators are related, which is not unexpected. Knowing more people might lead to identifying more subgroups.
+
+## 5. Are the data consistent with a hypothesized mediation model where individ mediates the relationship between ingroup/outgroup and perceived heterogeneity? What are the four conditions for mediation? Test each condition step-by-step using a series of models. Make sure your results are replicable and based on enough bootstraps.
+```{r}
+m_1 <- lm(heterog ~ condition, data = data)
+summary(m_1)
+
+m_2 <- lm(individ ~ condition, data = data)
+summary(m_2)
+
+m_3 <- lm(heterog ~ individ + condition, data = data)
+summary(m_3)
+
+m_4 <- lm(heterog ~ condition + individ, data = data)
+summary(m_4)
+```
+
+## 6.	Are the data consistent with a hypothesized mediation model where subgr mediates the relationship between ingroup/outgroup and perceived heterogeneity? Test all conditions for mediation within just one path model. What is the percentage of total effect mediated? What does this percentage tell you about the effect size of the mediation? Make sure your results are replicable and based on enough bootstraps.
+```{r}
+syntax_mediation <- "
+
+# Path a: Regres condition (ingroup/outgroup) on subgr (subgroup knowledge)
+subgr ~ a * condition
+
+# Path b: Regres heterog (perceived heterogeneity) on both subgr (mediator) and condition (direct effect)
+heterog ~ cp * condition + b * subgr
+
+# Indirect effect (ab) = a * b
+ab := a * b
+
+# Total effect (direct effect + indirect effect)
+total := cp + ab
+
+# Proportion of the total effect mediated by subgr
+p_med := ab / total
+"
+
+set.seed(1234)
+
+fit1 <- sem(syntax_mediation, data = data, se = "bootstrap", bootstrap = 1000)
+
+beepr::beep()
+
+parameterEstimates(fit1, ci = TRUE, level = 0.95, boot.ci.type = "perc", zstat = F)
+```
+1. Are the data consistent with a hypothesized mediation model where subgr mediates the relationship between condition (ingroup/outgroup) and heterog (perceived heterogeneity)?
+Yes, the data are consistent with the hypothesized mediation model. The following points support this:
+The indirect effect (ab), which represents the mediation effect of subgr, is negative and significant, with a value of -1.788 (bootstrap confidence interval: -2.9 to -0.84). Since the confidence interval does not include zero, we can conclude that the indirect effect is statistically significant.
+The direct effect (cp) of condition on heterog is also negative, but it is not significant at the 95% confidence level (CI: -1.98 to 0.26), meaning that the direct effect of condition on heterog is weak and does not significantly differ from zero in this model.
+
+2. What is the percentage of the total effect mediated?
+69%
+
+What does this percentage tell you about the effect size of the mediation?
+The 68.8% indicates that a substantial proportion of the total effect of condition on heterog is mediated through subgr. This suggests that subgr plays a key role in explaining the relationship between the ingroup/outgroup condition and perceived heterogeneity. A high proportion like this points to a relatively strong mediation effect, meaning that the relationship between condition and heterog is largely driven by the mediator (subgr), rather than a direct effect of condition on heterog.
+
+
+## 7.	Write 5-7 sentences describing the results where subgr was the mediator. Report and interpret relevant the coefficients, test statistics, and effect sizes. Considering the research design, are these results convincing evidence for the proposed mediation model?
+The results of the mediation analysis suggest that subgroup knowledge (subgr) mediates the relationship between the condition (ingroup/outgroup) and perceived heterogeneity (heterog). Specifically, the effect of condition on perceived heterogeneity is partially mediated by subgroup knowledge. The total effect of condition on heterogeneity (Path c) is significant, with a coefficient of -2.600, indicating that participants in the ingroup condition perceive less heterogeneity. Path a reveals that condition significantly predicts subgroup knowledge (coefficient = -2.300, p < 0.001), with participants in the ingroup condition reporting less knowledge of subgroups. Path b shows that subgroup knowledge positively influences perceived heterogeneity (coefficient = 0.777, p = 0.021), indicating that more subgroup knowledge is associated with greater perceived heterogeneity.
+
+The indirect effect, computed as the product of paths a and b (ab = -1.788), is significant, with a 95% bootstrap confidence interval not including zero (-2.949 to -0.836). This suggests a robust mediation effect. Furthermore, the proportion of the total effect mediated by subgroup knowledge is 68.8% (p_med = 0.688), highlighting a substantial role for subgroup knowledge in explaining the relationship between condition and perceived heterogeneity.
+
+Considering the research design and statistical results, these findings provide convincing evidence for the proposed mediation model. The significant indirect effect and the high proportion of the total effect mediated suggest that subgroup knowledge plays a key role in shaping perceptions of heterogeneity based on ingroup or outgroup status. However, the model's reliance on cross-sectional data means that causal inferences should be made with caution.
+
+## 8. Make a path diagram for one of the two mediation models above using a software or website of your liking (e.g., PowerPoint, draw.io, etc.). Fill in path names, estimates, and confidence intervals appropriately and indicate statistical significance using asterisks. See the end of this document for an example of a path diagram
+
+I used ChatGPT to insert my image using the following prompt: i am trying to import an image into my r script. how would i put this into my script?
+```{r}
+img_path <- "/Users/nicolefriedl/Desktop/diagram1.png"
+
+img <- png::readPNG(img_path)
+
+grid::grid.raster(img)
+```
+
+## 9. How long did this assignment take?
+6 hours. 
