@@ -1,0 +1,187 @@
+---
+title: "Homework 6" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Data Analysis
+
+An astrology professor Starry Ringo has an unprecedented desire to empirically assess the
+training she provides entitled, “Celestial Bodies and their Influence in Daily Life.” She asks 400
+students on day 1 of her course to complete scale of her own devising, which she calls “Global
+Well-Being.” This scale is comprised of 4 subscales about subjective well-being, sense of self-
+clarity, sense of oneness with the world, and perceptions of harmony on Earth. She then
+randomly assigns each student to either receive her training or a control group. Then, students
+were asked to complete the Global Well-Being scale a second time 1 week after the training
+ends. She expects that, on average, students in the training group, who focused on understanding
+how the movement of the planets and stars affect their body chemistry, will have a greater
+increase in Global Well-Being than those who were placed in the control group and lack this
+knowledge.
+
+Note: This study and its results are made up. In reality, we do not expect stars to have any
+bearing on our well-being
+
+
+**Codebook:**   
+
+- `id`: ID number, values: 1-400
+- `condition`: Whether the participant completed the training, 0 = control, 1 = training
+- `time`: Time of measurement, values: -1 = baseline, 1 = post-test
+- `gwb`: Global well-being, values: -5.76-88.88
+- `zodiac`: Student Zodiac Sign, values: aquarius, cancer, capricorn, gemini, leo, libra, pisces, scorpio, taurus, virgo
+- `subscale`: Global well-being subscale, values: 1 = subjective well-being, 2 = sense of self-clarity, 3 = sense of oneness, 4 = perceptions of harmony 
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(Matrix, exclude = c("expand", "pack", "unpack"))
+library(lme4)
+library(broom)
+library(skimr)
+library(car, exclude = c("recode", "some"))
+library(ggplot2)
+library(janitor)
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+```
+
+## 1. Read in the data. Explore univariate descriptive statistics
+
+```{r}
+data <- read_csv(here::here(path_data, "hw_6_data_long.csv"),
+              show_col_types = FALSE) |>
+  janitor::clean_names()
+  glimpse(data)
+```
+
+
+## 2. Tabulate the mean Global Well-Being (GWB) scores across the time points and training conditions (so you should report 2x2 = 4 means total).
+
+```{r}
+gwb_means <- data |> 
+  group_by(time, condition) |> 
+  summarize(mean_gwb = mean(gwb, na.rm = TRUE),
+            .groups = "drop")
+
+glimpse(gwb_means)
+```
+
+## 3. Center the time and condition variables around -0.5 and 0.5
+```{r}
+data <- data |> 
+  mutate(
+    time_c = ifelse(time == -1, -0.5, 0.5),
+    condition_c = ifelse(condition == 0, -0.5, 0.5)
+  )
+```
+
+
+## 4.	For the first 12 subjects, plot subject-level data using ggplot. Remember to make sure the variables have informative names, but the plot does not have to be publication-quality
+```{r}
+ggplot(data = data |>  filter(id <= 12), 
+       aes(x = time_c, y = gwb)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~id) +
+  labs(
+    title = "Global Well-Being Scores by Subject",
+    x = "Time (centered)",
+    y = "Global Well-Being Score"
+  )
+```
+
+## 5. Convert the data from long to wide format. Ensure that your columns have sensible names in the wide format data file. Keep any other variables that are present, the astrologer wants to analyze them later but isn’t sure how to transform data herself. (You may need to use the pivot_wider() function more than once to fully transform your data into wide format)
+```{r}
+data_wide <- data |> 
+  select(-time_c, -condition_c) |> 
+  pivot_wider(names_from = c('time', 'subscale'),
+              values_from = 'gwb')
+```
+
+## 6.	Using the wide format data, create an average post-test GWB score and an average pre- test GWB score (remember that your average GWB score should by calculated from the 4 subscales). Calculate a difference score by subtracting the average pre-test GWB scores from post-test GWB scores.
+```{r}
+data_wide_avg <- data_wide %>%
+  mutate(
+    avg_pre_gwb = rowMeans(select(cur_data(), starts_with("pre_")), na.rm = TRUE),
+    avg_post_gwb = rowMeans(select(cur_data(), starts_with("post_")), na.rm = TRUE),
+    diff_gwb = avg_post_gwb - avg_pre_gwb
+  )
+
+head(data_wide_avg)
+```
+
+## 7.	Test the effect of training on post-test scores using the ANCOVA method. Run the appropriate model. Is the astrologer’s hypothesis supported? Report relevant statistics. What is the coefficient for pre-test GWB score? How do you interpret that coefficient? What does this coefficient tell you about the statistical power of the ANCOVA vs. other approaches?
+
+```{r}
+m_ancova <- lm(avg_post_gwb ~ condition + avg_pre_gwb, data = data_wide_avg)
+summary(m_ancova)
+
+anova(m_ancova)
+```
+The astrologer's hypothesis that training increases post-test Global Well-Being (GWB) scores is supported (F(1, 397) = 371.7, p < 2.2e-16), with a significant positive effect of training (coefficient = 0.955411). The pre-test GWB score is a strong predictor of post-test scores (coefficient = 1.000701), indicating that higher pre-test scores are associated with higher post-test scores. This strong relationship increases the ANCOVA's statistical power by reducing residual variance, making it more sensitive to detecting the training effect compared to simpler approaches. The model explains a very high percentage of the variance in the post test gwb scores (R squared = 0.9795).
+
+## 8. Write up the results for the ANCOVA test in a publication-quality results section.
+
+An analysis of covariance (ANCOVA) was conducted to examine the effect of the training program on post-test Global Well-Being (GWB) scores, controlling for pre-test GWB scores. Results revealed a statistically significant effect of the training condition on post-test GWB scores, F(1, 397) = 371.7, p < 2.2e-16, η² = 0.48. Specifically, participants in the training group exhibited significantly higher post-test GWB scores (M = [calculated mean], SD = [calculated SD]) compared to those in the control group (M = [calculated mean], SD = [calculated SD]), after accounting for pre-test GWB scores. Pre-test GWB scores were a strong predictor of post-test GWB scores (β = 1.00, p < 2.2e-16), indicating a robust linear relationship. The model explained a substantial proportion of the variance in post-test GWB scores (R² = 0.9795).
+
+## 9. Create a publication quality graph for your ANCOVA model. Use your best judgment in determining what predictors to put on what axis, if you want to hold any predictors constant, etc.
+
+```{r}
+plot_data <- data_wide_avg |> 
+  group_by(condition) |> 
+  summarise(
+    mean_post_gwb = mean(avg_post_gwb, na.rm = TRUE),
+    se_post_gwb = sd(avg_post_gwb, na.rm = TRUE) / sqrt(n())
+  )
+
+ggplot(plot_data, aes(x = factor(condition), y = mean_post_gwb, fill = factor(condition))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.7) +
+  geom_errorbar(aes(ymin = mean_post_gwb - se_post_gwb, ymax = mean_post_gwb + se_post_gwb),
+                width = 0.2, position = position_dodge(width = 0.9)) +
+  labs(
+    title = "Effect of Training Condition on Post-Test GWB",
+    x = "Training Condition",
+    y = "Mean Post-Test Global Well-Being (GWB)",
+    fill = "Training Condition"
+  ) +
+  scale_x_discrete(labels = c("Control", "Training")) + 
+  scale_fill_manual(values = c("lightblue", "lightgreen"), labels = c("Control", "Training")) + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    legend.position = "right",
+    axis.title.x = element_text(margin = margin(t = 10)), 
+    axis.title.y = element_text(margin = margin(r = 10))
+  )
+```
+
+## 10. Now imagine another change to the procedure. Students in the courses complete the GWB scale. The courses with an average score of 50 and above take part in secondary course in which they receive training. After the end of the training all students in the course complete the GWB scale again. Does this change in procedure affect the appropriate data-analytic strategy, yes or no? Justify your answer in one or two sentences. If you answer yes, explain what in your view the appropriate data analytic strategy is.
+
+Yes, this change significantly affects the data-analytic strategy. The new procedure introduces a non-random assignment to the training group based on pre-test scores, violating the assumption of independence between the covariate (pre-test score) and the treatment condition, making a standard ANCOVA inappropriate. A more appropriate strategy would be a regression discontinuity design (RDD) if the cutoff of 50 is strictly enforced, or a propensity score matching approach to address the selection bias.
+
+## 11. A group of researchers are interested in testing whether interpersonal psychotherapy and whether the use of a mindfulness mobile app reduces depressive symptoms. 20 patients are recruited from each of the 30 local psychological clinics resulting in a sample of 600 individuals. Half of the clinics were randomly assigned to engage their patients in using the mindfulness app, while the other half did not provide the mindfulness app. In each clinic, half of the patients were randomly assigned to psychotherapy, and the other half to treatment as usual (i.e., control condition). Depressive symptoms were measured at two times: once before intervention and once 8 weeks into the intervention. Write out the level 1 & 2 equations for the model that the researchers would want to fit. 
+
+Level 1: Depression_tij = β0ij + β1ij * Time_tij + e_tij
+
+Level 2: β0ij = γ00 + γ01 * Psychotherapy_ij + γ02 * Mindfulness_j + γ03 * (Psychotherapy_ij * Mindfulness_j) + u0j + r0ij
+β1ij = γ10 + γ11 * Psychotherapy_ij + γ12 * Mindfulness_j + γ13 * (Psychotherapy_ij * Mindfulness_j) + u1j + r1ij
+
+## 12. How long did this assignment take you?
+
+4 hours
+
+## 13. If you used ChatGPT or any other LLM while working on this homework, please indicate so below. Please list all commands that you provided the LLM with and its responses.
+
+I tried to use it to help me do the pivot_wider section. Although, not very helpful. I kept getting errors so I deleted it and enlisted the help of https://tidyr.tidyverse.org/reference/pivot_wider.html. 
+
+
