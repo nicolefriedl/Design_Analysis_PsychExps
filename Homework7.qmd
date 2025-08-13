@@ -1,0 +1,125 @@
+---
+title: "Homework 7" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Data Analysis
+
+Does how effective someone perceives a problem-solving strategy to be influence the likelihood
+that they use that strategy when trying to solve puzzles?
+
+Researchers recruited 40 participants to investigate the relationship between perceived
+effectiveness of a strategy and likelihood of use. Each participant was presented with a different
+puzzle (solving a rubix cube, finding the best route to get to work, crosswords, sudoku, etc).
+Each participant was then told about 10 different strategies for solving their specific puzzle.
+They asked participants to rate how effective they perceived each strategy to be from 0 (not
+effective at all) to 7 (very effective). They also asked them to rate how likely they were to use
+each strategy when attempting to solve their puzzle in the future from 1 (not very likely) to 14
+(very likely). Additionally, half of the participants were told that these strategies came from
+experts and the other half were not given information about the source of the strategy.
+
+The researchers hypothesized that:
+Hypothesis 1: There would be a positive relationship between the perceived effectiveness of a
+strategy and likelihood of adopting the strategy
+Hypothesis 2: Participants who generally think strategies are effective would be more likelihood
+to adopt strategies, on average
+Hypothesis 3: The above-mentioned positive relationship between perceived effectiveness of a
+strategy and likelihood of adopting the strategy (see Hypothesis 1) would be weaker when people
+learned that the strategies came from an expert than when they received no information about the
+source
+
+**Codebook:**   
+
+- `id`: ID number, values: 1-40
+- `effectiveness`: How effective participants thought the strategy was, values: 0-7
+- `expertise_c`: Whether participants were told the strategies came from experts or were not given information, values: -.5 = "No information", .5 = "Expert"
+- `use`: How likely participants were to adopt the strategy in the future, values: 1-14
+- `strategy`: Strategy id. 10 unique strategies per participant, values 1-400
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(Matrix, exclude = c("expand", "pack", "unpack"))
+library(lme4)
+library(lmerTest)
+library(ggplot2)
+library(janitor)
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+```
+
+## 1. Read in the dataset and perform univariate and bivariate exploration. Are these data in wide or long format? How can you tell? Create a simple table that allows you to display the number of subjects you have and the number of observations per subject
+
+Long format. 
+```{r}
+d <- read_csv(here::here(path_data, "hw_7_data.csv"),
+              show_col_types = FALSE) |>
+  janitor::clean_names()
+  glimpse(d)
+  
+summary(d)
+  
+d |> pull(sub_id) |> table()
+```
+
+
+## 2. Create a new variable with values equal to each subject’s mean effectiveness score. What type of relationship does this variable let us isolate?
+
+This will allow us to test how individual variations in effectiveness (within a participant) influence the dependent variable, rather than just differences between subjects.
+```{r}
+d <- d |> 
+  mutate(effectiveness_mean = ave(effectiveness, sub_id),  
+         effectiveness_cmc = effectiveness - effectiveness_mean)  
+```
+
+## 3. Create a new variable by centering effectiveness around each subject’s own mean effectiveness score. What type of relationship does this variable let us isolate?
+
+This lets you examine how fluctuations in effectiveness within an individual (relative to their own mean) impact the outcome, separate from between-person differences.
+```{r}
+d <- d |> 
+  mutate(effectiveness_mean = ave(effectiveness, sub_id),
+         effectiveness_cmc = effectiveness - effectiveness_mean)
+```
+
+
+## 4.	Test hypotheses 1 and 2 with a single model.
+```{r}
+m_1 <- lmer(use ~ effectiveness_cmc + effectiveness_mean + (1 | sub_id), data = d)
+
+summary(m_1)
+```
+
+## 5. Interpret the results of this model BRIEFLY in the context of each hypothesis. Report the appropriate statistics after each interpretation. Do participants report more intention to use strategies that they rate higher on the effectiveness scale? Do participants who, on average, rate strategies as better also report lower intentions to use strategies?
+
+The model shows that within individuals, strategies rated as more effective than their personal average were significantly more likely to be adopted (b = 0.36, SE = 0.07, t(359) = 5.13, p < .001), supporting Hypothesis 1. However, participants who generally rated strategies as more effective did not report significantly higher (or lower) overall intentions to use strategies (b = -0.53, SE = 0.81, t(38) = -0.65, p = .52), providing no support for Hypothesis 2.
+
+## 6.	Test hypothesis 3 and interpret your results BRIEFLY, including appropriate statistics. 
+
+The results support Hypothesis 3, indicating that the positive relationship between perceived effectiveness and likelihood of use is moderated by expertise condition. The significant interaction term (effectiveness_cmc * expertise_c: b = -0.537, SE = 0.139, t(358) = -3.875, p < .001) suggests that the relationship between effectiveness and use is weaker when participants were told the strategies came from experts compared to when they received no source information. Additionally, participants in the expert condition reported generally higher likelihood of using strategies (β = 1.697, SE = 0.460, t(37) = 3.689, p < .001). However, there was no significant association between participants’ average effectiveness ratings and likelihood of use (β = -0.608, SE = 0.704, t(37) = -0.864, p = .393).
+
+```{r}
+m_2 <- lmer(use ~ effectiveness_cmc * expertise_c + effectiveness_mean + (1 | sub_id), data = d)
+
+summary(m_2)
+```
+
+## 7.	Please document questions where you used ChatGPT or other generative LLMs for assistance. Include the corresponding homework question number, the input question you provided to the LLM, and the response you received. If you did not use any generative LLMs for this homework, please indicate that below
+
+None.
+
+## 8. How long did this assignment take you to complete?
+
+1.5 hours. 
+
+
