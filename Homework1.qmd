@@ -1,0 +1,290 @@
+---
+title: "Homework 1" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Data Analysis
+
+In this (fake) study, researchers were interested in how category information influences people’s
+judgements about food. They recruited 48 adults and presented them with the picture of a food
+and its nutrition label (obtained from the FDA). After reviewing all the nutrition information,
+participants were asked to judge how healthy the food from 1 (not at all) to 100 (very much).
+Participants were also asked to judge how sweet they thought the food was. The food that was
+displayed to participants also varied. Half of the participants saw a healthy food product and the
+other half saw an unhealthy food product (factor "food category"). Healthy and unhealthy foods
+were determined by nutritionists and dieticians during pilot testing. In addition, the different
+types of foods varied with regard to information ambiguity. Half of the food products belonged
+to a category for which nutritional information was clear (i.e., deserts) and the other half
+belonged to a category with ambiguous nutritional information (i.e., breakfast) (factor "food
+ambiguity"). After participants judged the food, the research team asked six items for which
+participants rated how much they knew about nutrition on a 0 (not very knowledgeable) – 5 (very
+knowledgeable) sliding scale.
+The researchers predicted that there would be a positive interaction between food ambiguity and
+whether the food was healthy on participant’s ratings of healthiness. However, cognizant of how
+nutritional knowledge might impact one's ratings of ambiguity, the researchers' decided to
+control for participants' health knowledge in this analysis.
+
+
+**Codebook:**   
+
+- `Healthiness_rating`
+- `Sweetness_rating` 
+- `Nutrition_knowledge`  
+- `Food_ambiguity` 
+- `Food_healthiness` 
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok") 
+library(tidyverse)
+library(broom)
+library(skimr)
+library(readxl)
+library(janitor)
+library(dplyr)
+library(ggplot2)
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/var_score.R?raw=true")
+
+theme_set(theme_classic()) 
+
+path_data <- "/Users/nicolefriedl/Desktop/710/homework/data/hw_15_data.xlsx"
+```
+I had to provide an absolute path due to rendering issues. I am going to look into this further during the week. 
+
+```{r}
+delta_r2 <- function(compact, augmented) {
+  broom::glance(augmented)$r.squared - broom::glance(compact)$r.squared
+}
+
+peta <- function(compact, augmented) {
+  sse_c <- sum(residuals(compact)^2)
+  sse_a <- sum(residuals(augmented)^2)
+  
+  (sse_c - sse_a)/sse_c
+}
+```
+
+### 1. Data preparation
+
+#### a. Read in the data file (`hw_15_data.xlsx`). 
+
+```{r}
+data <- read_excel(path_data) |> 
+  janitor::clean_names()
+```
+
+
+#### b. Check our data for snake case. 
+
+```{r}
+glimpse(data)
+```
+There is not much missing data. I am not too concerned since only one value is missing. 
+
+####  c. Make sure your variables are appropriately classed
+```{r}
+data$nutrition_knowledge1 <- as.numeric(data$nutrition_knowledge1)
+
+data <- data |> 
+  mutate(
+    food_ambiguity = if_else(food_ambiguity == 'Unambiguous', -0.5, 0.5),
+    food_healthiness = if_else(food_healthiness == 'Ambiguous', -0.5, 0.5)
+  )
+
+str(data)
+```
+
+
+### 2.	Create a new mean composite score called nutrition_m. Check the codebook to see if there is any relevant information about reverse coded items. Prorate items but do not assign a score to participants missing more than 15% of items. Then, center this score.
+```{r}
+nutrition_items <- c("nutrition_knowledge1", "nutrition_knowledge2", "nutrition_knowledge3", 
+                     "nutrition_knowledge4", "nutrition_knowledge5", "nutrition_knowledge6")
+
+data <- data |> 
+  mutate(nutrition_m = rowMeans(select(data, all_of(nutrition_items)), na.rm = TRUE))
+
+data <- data |> 
+  mutate(nutrition_m = var_score(data, forward_items = nutrition_items, prorate = TRUE, max_miss = 0.15/6))
+
+data <- data |> 
+  mutate(nutrition_m_centered = nutrition_m - mean(nutrition_m, na.rm = TRUE))
+```
+
+
+### 3. Create three quick-and-dirty bivariate plots of the researchers' three predictor variables on the outcome variable, participants' healthiness ratings. Write a brief description of what you see in these plots.
+
+#### a.	
+```{r}
+ggplot(data, aes(x = food_ambiguity, y = healthiness_rating)) +
+  geom_boxplot() +
+  labs(title = "Food Ambiguity vs Healthiness Rating",
+       x = "Food Ambiguity",
+       y = "Healthiness Rating") 
+
+ggplot(data, aes(x = food_healthiness, y = healthiness_rating)) +
+  geom_boxplot() +
+  labs(title = "Food Healthiness vs Healthiness Rating",
+       x = "Food Healthiness",
+       y = "Healthiness Rating") 
+
+ggplot(data, aes(x = nutrition_m, y = healthiness_rating)) +
+  geom_point() +
+  labs(title = "Nutrition Knowledge vs Healthiness Rating",
+       x = "Nutrition Knowledge (Mean Score)",
+       y = "Healthiness Rating") 
+```
+There is a notable difference in how participants rate the healthiness of foods based on their perceived ambiguity. We also see we higher healthiness ratings for "Healthy" foods compared to "Unhealthy" ones. Participants with higher nutrition knowledge might rate food healthiness differently than those with lower nutrition knowledge.
+
+#### 4.	Examining simple effects.
+
+
+```{r}
+data <- data |> 
+  mutate(food_ambiguity_d = ifelse(food_ambiguity == "Ambiguous", 0, 1))
+
+data <- data |> 
+  mutate(food_healthiness_d = ifelse(food_healthiness == "Unhealthy", 0, 1))
+
+glimpse(data)
+```
+
+
+Creating a table
+```{r}
+t_healthiness <- data |> 
+  group_by(food_ambiguity, food_healthiness) |> 
+  summarise(avg_healthiness_rating = mean(healthiness_rating, na.rm = TRUE)) |> 
+  ungroup()
+
+print(t_healthiness)
+```
+
+
+```{r}
+c_table <- data |> 
+  group_by(food_ambiguity, food_healthiness) |> 
+  summarise(avg_healthiness_rating = mean(healthiness_rating, na.rm = TRUE)) |> 
+  ungroup()
+
+print(c_table)
+```
+
+Healthiness Rating = 53.5 + 9 * Food Ambiguity + 3.8 * Food Healthiness + -9 * Ambiguous Healthy + 8.2 * Ambiguity and Health Interaction
+
+Yes, there seems to be an interaction happening between food ambiguity and food healthiness on the healthiness rating. The effect of food ambiguity (moving from Unambiguous to Ambiguous) has a larger effect on healthiness ratings for healthy foods (9-point difference) than it does for unhealthy foods (8.2-point difference). If there were no interaction, the effect of ambiguity would be the same across both healthy and unhealthy foods, but we see that the effect is different. The effect of food ambiguity on healthiness ratings is stronger for healthy foods than for unhealthy foods.
+
+#### 5.	Run the model 
+```{r}
+#Interaction
+m_1 <- lm(healthiness_rating ~ food_ambiguity * food_healthiness + nutrition_m, data = data)
+
+#Food healthiness
+m_2 <- lm(healthiness_rating ~ food_healthiness + nutrition_m, data = data)
+
+#Food ambiguity
+m_3 <- lm(healthiness_rating ~ food_ambiguity + nutrition_m, data = data)
+
+model_compact <- lm(healthiness_rating ~ nutrition_m, data = data)
+
+summary(m_1)
+summary(m_2)
+summary(m_3)
+summary(model_compact)
+anova(m_1)
+anova(m_2)
+anova(m_3)
+anova(model_compact)
+confint(m_1, level = 0.95)
+confint(m_2, level = 0.95)
+confint(m_3, level = 0.95)
+confint(model_compact, level = 0.95)
+peta(model_compact, m_1)
+peta(model_compact, m_2)
+peta(model_compact, m_3)
+```
+
+#### b. Results
+The goal of this study was to explore the predictors of participants' healthiness ratings of foods, focusing on the effects of food ambiguity, food healthiness, and nutrition knowledge. The primary hypothesis was that both food ambiguity and food healthiness would influence participants' healthiness ratings, with potential interaction effects.
+
+Model 1: Full Model 
+The full model, which included both food ambiguity and food healthiness, as well as their interaction, yielded the following results:
+
+Intercept: B=56.591, t(43)=5.757, p<0.001
+Food Ambiguity (Unambiguous): B=8.889, t(43)=1.462, p=0.151
+Food Healthiness (Healthy): B=−3.889, t(43)=−0.640, p=0.526
+Nutrition Knowledge: B=3.984, t(43)=1.008, p=0.319
+Interaction: B=−16.757, t(43)=−1.948, p=0.058
+The interaction effect between food ambiguity and food healthiness approached significance (p=0.058), suggesting that the effect of food ambiguity on healthiness ratings may vary depending on whether the food is judged as healthy or unhealthy. However, the main effects of food ambiguity and food healthiness were not significant.
+
+The F-statistic for this model was 3.341 on 4 and 43 degrees of freedom (p=0.018), indicating that the overall model explained a significant portion of the variance in healthiness ratings.
+
+Partial Eta-Squared values:
+ peta=0.217, Food Healthiness: peta=0.148
+Nutrition Knowledge: peta=0.0003
+Interaction: peta=0.217
+
+Model 2: Food Healthiness and Nutrition Knowledge
+In the second model, we examined the effects of food healthiness and nutrition knowledge on healthiness ratings:
+
+Intercept: B=60.241, t(45)=6.291, p<0.001
+Food Healthiness (Healthy): B=−12.254, t(45)=−2.795, p=0.008
+Nutrition Knowledge: B=4.338, t(45)=1.077, p=0.287
+The effect of food healthiness was significant (p=0.008), with healthy foods rated as significantly lower in healthiness than unhealthy foods. The nutrition knowledge variable was not significant.
+
+The F-statistic for this model was 4.593 on 2 and 45 degrees of freedom (p=0.015).
+
+Partial Eta-Squared values:
+
+Food Healthiness: 
+peta=0.148
+
+Nutrition Knowledge: 
+peta=0.0003
+
+Model 3: Food Ambiguity and Nutrition Knowledge
+The third model focused on the effects of food ambiguity and nutrition knowledge on healthiness ratings:
+
+Intercept: B=52.961, t(45)=5.122, p<0.001
+Food Ambiguity (Unambiguous): B=0.529, t(45)=0.111, p=0.912
+Nutrition Knowledge: B=4.736, t(45)=1.086, p=0.283
+Neither food ambiguity nor nutrition knowledge had a significant effect in this model. The F-statistic was 0.594 on 2 and 45 degrees of freedom (p=0.557).
+
+Partial Eta-Squared values:
+
+Food Ambiguity: 
+peta=0.0003
+Nutrition Knowledge: 
+peta=0.0003
+
+Based on the analysis, the researchers' hypothesis that food ambiguity and food healthiness would influence healthiness ratings was partially supported. The results suggest that food healthiness has a significant effect on healthiness ratings, with healthy foods being rated lower in healthiness. However, the effect of food ambiguity was not significant, and the interaction between food ambiguity and food healthiness approached but did not reach significance.
+
+The model that included both food ambiguity and food healthiness (Model 1) explained a significant portion of the variance in healthiness ratings, with both food healthiness and the interaction effect showing some relevance. However, nutrition knowledge did not significantly influence the ratings in any of the models. Therefore, while the hypothesis is partially confirmed, further investigation is needed to understand the potential interaction between food ambiguity and healthiness more clearly.
+
+Confidence Intervals (95%):
+Food Ambiguity: 
+CI=[−3.37,21.15]
+
+Food Healthiness: 
+CI=[−16.15,8.37]
+
+Nutrition Knowledge: 
+CI=[−3.99,11.96]
+
+Interaction: 
+CI=[−34.11,0.59]
+The 95% confidence intervals for food ambiguity and the interaction term include zero, indicating uncertainty around the estimates for these predictors.
+
+#### c. Are there any topics in particular that you are feeling less confident about from 610? We will do our best to read these responses and incorporate review of these topics throughout the semester.
+I think that I feel pretty confident for the most part, I sometimes cannot remember main and simple effects or get them confused in my head when I am doing them. For the most part, I can keep them straight though. 
+
+#### d. How long did this assignment take?
+6 hours. 
