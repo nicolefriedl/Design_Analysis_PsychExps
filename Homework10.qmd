@@ -1,0 +1,124 @@
+---
+title: "Homework 10" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Data Analysis
+
+A researcher is developing a new scale to simultaneously measure state aggression (i.e., how
+aggressive a person feels in the moment they completed the survey) and trait aggression (i.e., how
+aggressive a person behaves in general). The researcher wrote 10 trait aggression items and 10
+state aggression items. The researcher wants to select the 5 or 6 best items to measure these
+constructs. The researcher recruited 140 participants to complete the scale. The participants rated
+their agreement with each item on a 1 to 7 scale.
+
+Sadly, the file that the researcher sent you that contained the description of the items was corrupted
+so you so not know what each item asked.
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok")
+
+library(tidyverse)
+library(car, exclude = c("recode", "some"))
+
+library(GPArotation)
+library(psy)
+library(plotrix)
+library(FactoMineR)
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+```
+
+## 1. Select and measure variables. Make a correlation matrix of the items. Scan through this table and report two pairs of items: one pair you expect to load on the same factor and one pair you expect will load on different factors. Why?
+
+m and b with a correlation of .69. These two items are very strongly correlated, suggesting they measure a similar underlying construct—likely trait aggression (e.g., persistent, personality-based aggression). That strong correlation implies people who score high on one tend to score high on the other in a very consistent way, which points to them reflecting the same factor.
+
+x and m with a correlation of -.10. This is a very weak negative correlation, suggesting the two items are likely tapping into different constructs.
+
+```{r}
+d <- read_csv(here::here(path_data, "hw_10_data.csv"),
+              show_col_types = FALSE) |>
+  janitor::clean_names()
+  glimpse(d)
+  
+cor_matrix <- cor(d, use = "pairwise.complete.obs")
+print(cor_matrix)
+```
+
+
+## 2. Determine how many factors to extract. How many factors should be extracted, according to the Kaiser criterion? How many factors should be extracted, according to the Scree plot criterion? Based on your answers to 2a and 2b and the cover story, how many factors do you want to extract?
+
+Kaiser: 4
+Scree: 2
+
+I would want to extract 2 factors. Sometimes Kaiser overestimates. 
+```{r}
+eigen(cor_matrix)$values
+
+#scree plot now!!!
+psych::VSS.scree(cor_matrix)
+```
+
+## 3. Based on prior research, the researcher thinks that state and trait aggression are not related to one another. Therefore, the factors should be uncorrelated. Which rotation should they use to accomplish this? Extract the number of factors you determined in 2c using the rotation you mentioned in 3a. 
+
+Varimax!
+```{r}
+fa3 <- psych::fa(
+  r = cor_matrix,       
+  nfactors = 2,         
+  rotate = "varimax",   
+  covar = FALSE,        
+  fm = "pa"             
+)
+
+print(fa3, sort = TRUE) 
+```
+
+
+## 4.	Interpret findings
+The rotated factor solution revealed that items such as m, b, d, q, p, a, h, v, t, and r loaded strongly onto the first factor (PA1), suggesting that this factor likely represents trait aggression. Items s, l, u, g, o, f, c, x, j, and y loaded more strongly onto the second factor (PA2), indicating that this factor likely captures state aggression. The two-factor solution explained 46% of the total variance, with PA1 accounting for 27% and PA2 for 19%. The RMSR was 0.05, indicating good model fit, and factor score correlations were strong, with regression scores correlating .96 with PA1 and .92 with PA2. These findings support the presence of two distinct, uncorrelated constructs consistent with the theoretical distinction between state and trait aggression.
+
+## 5. List the items that load onto each factor. Also note if some items load onto multiple factors or do not load onto any factors.
+Factor 1 (PA 1: Trait aggression): m(0.82), b(0.77), d(0.75), q(0.74), p(0.74), a(0.70), h(0.70), v(0.69), t(0.65), r(0.52)
+Factor 2 (PA 2: State aggression): s(0.79), l(0.72), u(0.69), g(0.57), o(0.54), f(0.53), c(0.50), x(0.45), j(0.44), y(0.42)
+
+Factors that load onto multiple factors: r: Loads on Factor 1 (0.52) and Factor 2 (0.11), but the loading on Factor 1 is much stronger, so it’s mainly associated with Factor 1. x: Loads weakly on Factor 2 (0.45) and also has a negative loading on Factor 1 (-0.10). This could indicate an ambiguous association or weak cross-load.
+
+Factors that do not load strongly on either factor: There are no items with zero loadings, but x has a relatively weak and negative loading on Factor 1, making it a borderline case that may not be clearly associated with either factor.
+
+## 6.	Are any of the items outliers? If so, list them. 
+
+Based on the factor loadings and item complexity values, x and j appear to be outliers, as they have weak or negative loadings, and x in particular has a negative relationship with Factor 1.
+
+## 7.	How much variance is explained by these factors?
+
+The two factors explain 46% of the total variance in the data, with Factor 1 contributing more to the explanation of the variance compared to Factor 2.
+
+## 8. List the 10 items you think best represent the proposed constructs (5 for each construct). You want to choose items that have a high loading on the focal factor and a low loading on the non-focal factor. *Note that if you were doing this in your research, you would want to rerun the factor analysis after removing each bad item
+
+State aggression: m (Loading: 0.82 on PA1), b (Loading: 0.77 on PA1), d (Loading: 0.75 on PA1), q (Loading: 0.74 on PA1), p (Loading: 0.74 on PA1)
+
+Trait aggression: s (Loading: 0.79 on PA2), l (Loading: 0.72 on PA2), u (Loading: 0.69 on PA2), g (Loading: 0.57 on PA2), o (Loading: 0.54 on PA2)
+
+## 9. What additional step is crucial for performing this factor analysis? What additional information would you need in order to be able to perform this step?
+
+Unsure, was not able to find this in the slides or lab notes. I think it might be the scores though, we would need to look at those. 
+
+## 10. Please document questions where you used ChatGPT or other generative LLMs for assistance. Include the corresponding homework question number, the input question you provided to the LLM, and the response you received. If you did not use any generative LLMs for this homework, please indicate that below.
+
+None.
+
+## 11. How long did this assignment take you to complete?
+
+4 hours. 
