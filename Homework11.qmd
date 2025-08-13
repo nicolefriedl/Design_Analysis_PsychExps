@@ -1,0 +1,267 @@
+---
+title: "Homework 11" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Conceptual Questions 
+
+## 1. Imagine the following study:
+Researchers want to examine how student attitudes relate to course-taking behavior. They recruit 100
+incoming college freshmen, and they ask each student to evaluate a set of 30 courses at the university
+(each student rates the same 30 courses). Specifically, the researchers ask each student how confident
+they are that they could do well in the course (IV1, “confidence”) and how interesting they think the
+course would be (IV2, “interest”). The researchers also ask each student the extent to which they would
+consider taking the course (DV, “intent”). The researchers hypothesize that the two independent variables
+will interact to predict course-taking intentions, such that interest will have little impact when students
+lack confidence (and vice versa).
+
+a) What are the sources of non-independence in the data?
+There is non-independence due to subjects (students) and items (courses). Each student rates multiple courses, and each course is rated by multiple students.
+
+b) What random effects are needed for IV1?
+For IV1 (confidence), we need random slopes for subjects (as confidence varies within subjects) and random intercepts for items (as confidence varies between items).
+
+c) What random effects are needed for IV2?
+For IV2 (interest), we need random slopes for subjects (as interest varies within subjects) and random intercepts for items (as interest varies between items).
+
+d) Assuming we want to center our predictors, how should the predictor variables be centered in
+this model?
+The predictors should be centered within clusters. Specifically, confidence and interest should be person-mean centered (centered within each participant) since they vary within subjects.
+
+e) In lmer syntax, write out the correct model to test the researchers’ hypothesis.
+lmer(intent ~ confidence * interest + (confidence + interest | StudentID) + (1 | CourseID), data = d)
+
+f) How many parameters are being estimated in this model?
+12 parameters. 
+
+## 2. Provide an example for each of the following designs. Your cover story should make it very obvious whether a variable varies within or between units. Please do not use an example taken directly from lab or lecture. Preferably use an example from your own research area.
+
+a. Fully crossed
+In this study, 40 participants each complete all possible combinations of experimental conditions. The design manipulates: music tempo (fast vs. slow), room lighting (bright vs. dim). Each participant completes four creative problem-solving tasks, one under each condition combination:
+
+Fast music + bright lighting
+Fast music + dim lighting
+Slow music + bright lighting
+Slow music + dim lighting
+
+This is fully crossed because every participant experiences all combinations of the independent variables, and the same tasks are used across all conditions.
+
+b. Stimuli-within-condition
+Effects of emotion regulation strategies on processing different types of emotional content
+In this study, participants are randomly assigned to one of three emotion regulation conditions:
+
+Cognitive reappraisal group
+Expressive suppression group
+No regulation (control) group
+
+Within each condition, participants view and rate 30 different emotional stimuli (10 positive, 10 negative, 10 neutral images). The stimuli vary within each condition, but each participant is exposed to only one regulation strategy.
+This is stimuli-within-condition because the emotional stimuli vary within each emotion regulation condition, but participants only experience one condition.
+
+c. Stimuli and participants within condition
+Comparing the effectiveness of two different teaching methods for language acquisition
+In this study, researchers compare two teaching methods: immersion method, traditional classroom method. 200 students are randomly assigned to one of the two methods (between-participants factor). Within each teaching method, students are further divided into four different language groups (Spanish, French, German, or Mandarin).
+This creates a design where:
+
+Teaching method varies between participants
+Language type varies between participants
+But both teaching method and language type vary within the overall condition of "teaching effectiveness"
+
+This is stimuli and participants within condition because both the participants and the language stimuli are nested within the teaching method conditions, but neither participants nor languages are fully crossed with teaching methods.
+
+## 3. Name four things that you can do when you have a complex linear mixed-effects model that doesn't converge, and your goal is to achieve convergence. You may wish to refer to the Brauer and Curtin (2018) article.
+
+1. Simplify the random effects structure (remove correlations between random effects using the "||" notation or remove random slopes that explain the least variance)
+2. Use a different optimizer or increase the number of iterations (e.g., using the control parameter with options like "optimizer='bobyqa'" or "optCtrl=list(maxfun=100000)")
+3. Center or standardize predictors to reduce multicollinearity among fixed effects
+4. Increase the sample size or collect more data if possible (non-convergence is often related to insufficient data for a complex model)
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok")
+
+library(tidyverse)
+library(Matrix, exclude = c("expand", "pack", "unpack"))
+library(lme4)
+library(readr)
+library(car, exclude = c("recode", "some"))
+library(effectsize)
+library(kableExtra, exclude = ("group_rows"))
+
+
+path_data <- "homework/data"
+devtools::source_url("https://github.com/jjcurtin/lab_support/blob/main/case_analysis.R?raw=true") 
+```
+
+## Part 2: Data Analysis
+
+Researchers were interested in how people might trust information depending on the source. They
+conducted a study in which 20 participants were asked to judge statements as either true or false (their
+reaction time was measured). Each participant rated the same eight statements. Half of the statements
+were correct (true in real life) and the other half were incorrect. Additionally, half of the statements were
+about physical phenomena and half were about chemical phenomena. Participants were randomly
+assigned to think that the statements were from physics professors (expert condition) and half were told
+the statements were from high school students (novice condition).
+All of the statements were about basic phenomena, so the researchers expected that everyone would
+correctly say that the correct statements were true, and the incorrect statements were false (no effect of
+statement_acc on reaction time). However, the researchers thought that an effect of statement_acc on
+reaction time might depend upon the source of the statement. Specifically, that participants in the expert
+condition, as compared to the novice condition, would experience more conflict (slower reaction times)
+when judging false statements (i.e., they know the statement is false, but they thought that an expert said
+it, meaning it might be true). Therefore, researchers hypothesized that participants in the expert condition
+would take longer to judge false statements than participants in the novice condition. Moreover,
+researchers also wanted to know if this statement_acc by source interaction would be different for
+statements about physics as compared to statements about chemistry.
+
+**Codebook:**   
+
+- `subject_id`: Subject ID, values: 1-20
+- `statement_id`: Statement ID, values: 1-8
+- `statement_acc`: Source of the statements, values: -1 = Novice, 1 = Expert
+- `subject`: Subject of the statement, values: -1 Chemistry, 1 = Physics
+- `RT`: Reaction time
+
+## 1. The researchers in this case are not interested in statement accuracy. If they were, which data analytic technique should be used to know if people in the expert and novice conditions differ in their tendency to determine that correct statements are true (free of bias of participants’ tendency to say true when in doubt).
+
+For analyzing differences in accuracy judgment patterns between expert and novice conditions, the researchers would need to use Signal Detection Theory (SDT) analysis rather than just reaction time measures.
+Signal Detection Theory would be appropriate because:
+
+1. It allows separation of sensitivity (ability to discriminate between true and false statements) from response bias (tendency to respond "true" regardless of statement accuracy)
+2. Using d' (d-prime) as a sensitivity measure would indicate participants' ability to distinguish between true and false statements across conditions
+3. Using criterion or response bias measures (like c or β) would specifically address the researchers' interest in whether participants in the expert condition show a different bias toward judging statements as "true" compared to those in the novice condition
+4. This approach controls for individual differences in response tendency (some participants might generally be more likely to say statements are true regardless of their actual accuracy)
+
+By comparing these SDT metrics between the expert and novice conditions, researchers could determine if the source manipulation affects participants' accuracy judgment patterns independent of their general response tendencies. This would better answer the question about differences in accuracy judgments than simply looking at raw accuracy rates or reaction times.
+
+
+## 2. Read in and explore the data. As part of your data exploration, you should use at least one function that summarizes distributions of your variables AND you should use the kableExtra package covered in lab this week to format your table nicely.
+
+```{r}
+d <- read_csv(here::here(path_data, "expert_data.csv"),
+              show_col_types = FALSE) |>
+  janitor::clean_names()
+  glimpse(d)
+
+d |>
+  filter(subject_id == 1) |>  
+  kbl() |>                    
+  kable_paper("hover", full_width = F)  
+```
+
+## 3. How many sources of non-independence do we have in this data set? What are they?
+
+1. Subject non-independence: Each subject (participant) provides multiple observations (reactions to 8 different statements). This creates clustering or correlation within subjects, as responses from the same participant are likely to be more similar to each other than responses from different participants.
+2. Statement non-independence: Each statement is judged by all participants (all 20 subjects respond to the same 8 statements). This creates clustering or correlation within statements, as reactions to the same statement are likely to share common variance across different participants.
+
+
+## 4.	Specify whether each of the predictors vary within or between units (“units” being the random variables that create non-independence)? Also specify the unit you are referring to. What random intercepts and slopes do we need to include in our model?
+
+Random effects:
+
+1. source (Expert vs. Novice): Varies between subjects (each subject is in either the expert or novice condition). Varies within statements (each statement is presented in both expert and novice conditions to different subjects)
+
+
+2. statement_acc (True vs. False): Varies within subjects (each subject sees both true and false statements). Varies between statements (each statement is either true or false)
+
+
+3. subject (Chemistry vs. Physics): Varies within subjects (each subject sees both chemistry and physics statements). Varies between statements (each statement is about either chemistry or physics)
+
+For subjects as random variable:
+
+Random intercept for subjects (to account for individual differences in overall response speed)
+Random slopes for statement_acc (since it varies within subjects)
+Random slopes for subject/topic (since it varies within subjects)
+Potentially random slopes for the interaction between statement_acc and subject/topic
+
+For statements as random variable: Random intercept for statements (to account for differences in difficulty/complexity between statements). Random slopes for source (since it varies within statements)
+
+This leads to a model with the following random effects structure: (statement_acc + subject + statement_acc | subject_id)(source | statement_id)
+
+## 5. Center your predictors.
+
+```{r}
+d <- d |> 
+  mutate(source_c = source - mean(source))
+
+d <- d |> 
+  group_by(subject_id) |>
+  mutate(statement_acc_c = statement_acc - mean(statement_acc)) |>
+  ungroup()
+
+d <- d |> 
+  group_by(subject_id) |>
+  mutate(subject_topic_c = subject - mean(subject)) |>
+  ungroup()
+```
+
+## 6.	Fit the model of interest and examine your results. Did the model converge? Regardless, briefly interpret any significant results from your model. BONUS: Write out the appropriate measures you would take to get this model to converge. Please follow the guidelines in Table 17 Brauer & Curtin (2018). You can either write this as plain text or you can reference slides from lecture and try writing out code if you are feeling brave! Do not write out more than FOUR steps you might take.
+
+The model did converge because I centered around grand mean insted of conventionally. Initially, it was not converging. statement_acc_c (t = 7.29), participants took significantly longer to respond to false statements compared to true ones (remember statement_acc is centered, but originally coded as -1 = Novice, 1 = Expert). The direction of the effect (positive estimate) means reaction time increases with more "falseness.". source_c (t = 2.26), On average, statements from experts (compared to novices) were associated with longer reaction times. This suggests participants were more cautious or deliberate when processing information attributed to experts. statement_acc_c:source_c interaction (t = 7.50), this is the key interaction predicted by the hypothesis. When participants saw false statements attributed to experts, they showed slower reaction times than for false statements from novices. This supports the idea that conflict slows down decision-making—participants hesitate more when a trusted source says something that seems untrue.
+
+1. Simplify the random effects structure
+2. Use a more robust optimizer with more iterations
+3. Standardize or center predictors more aggressively
+4. Remove the least influential random slopes
+```{r}
+control = lmerControl(check.conv.singular = .makeCC(action = "ignore",  tol = 1e-4))
+
+model <- lmer(rt ~ statement_acc_c * source_c * subject_topic_c + 
+              (statement_acc_c * subject_topic_c | subject_id) + 
+              (source_c | statement_id), 
+              data = d, 
+              control = control)
+
+summary(model)
+```
+
+## 7.	Plot reaction time broken down by the source of the statements (experts or novice) and whether the statements were true or false. Create two panels, one for physics statements and one for chemistry statements. See the lab 6 TA script for help creating a bar graph with LMEMs (remember we will need to use bootstrapping).
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(broom.mixed)
+
+d_graph <- expand_grid(
+  statement_acc_c = c(-.5, .5),  
+  source_c = c(-.5, .5),         
+  subject_topic_c = c(-.5, .5)   
+)
+
+pred_fun <- function(fit) {
+  predict(fit, d_graph, re.form = NA)
+}
+
+boot <- bootMer(model, nsim = 500, FUN = pred_fun, seed = 111) |> tidy()
+
+preds <- boot |> 
+  bind_cols(d_graph) |>  
+  as_tibble() |>  
+  mutate(
+    statement_acc_lab = factor(statement_acc_c, c(-.5, .5), c("False", "True")),
+    source_lab = factor(source_c, c(-.5, .5), c("Novice", "Expert")),
+    subject_lab = factor(subject_topic_c, c(-.5, .5), c("Chemistry", "Physics"))
+  )
+
+ggplot(data = preds, 
+       aes(x = statement_acc_lab, y = statistic, 
+           fill = source_lab, group = source_lab)) +
+  geom_bar(stat = 'identity', position = position_dodge(width = 0.9)) +
+  geom_errorbar(aes(ymin = statistic - std.error, 
+                    ymax = statistic + std.error), 
+                stat = 'identity', position = position_dodge(width = 0.9),
+                width = 0.5) +
+  facet_wrap(~ subject_lab) +
+  labs(y = "Reaction Time (ms)", x = "Statement Accuracy",
+       fill = "Source", title = "Reaction Time by Statement Accuracy and Source") +
+  theme_minimal()
+```
+
