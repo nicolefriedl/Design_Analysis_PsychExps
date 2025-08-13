@@ -1,0 +1,224 @@
+---
+title: "Homework 12" 
+author: "Nicole Friedl" 
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true 
+    toc_depth: 4
+    embed-resources: true
+editor_options: 
+  chunk_output_type: console
+---
+
+## Part 1: Study 1
+
+Some researchers are interested in understanding emotional conflict. They recruit several
+participants wherein these participants watch short video clips depicting an actor’s facial
+expressions while listening to a spoken phrase. On some trials, the facial expression (e.g., smiling)
+appears to match the emotional valence of the voice (e.g., a cheerful tone), creating congruent
+signals; on other trials, the cues are incongruent (e.g., a smiling face with a harsh, angry tone).
+Participants are instructed to focus on either the facial expression or the voice while making an
+emotion recognition judgment. Researchers then measure the time it takes for each participant to
+identify the emotion depicted in a given video. Additionally, participants report their current level
+of fatigue on each trial.
+
+The researchers are interested in how this congruence factor and fatigue influence the reaction
+times with which participants identify the emotion. They predict that incongruent signals will slow
+responses overall, but that this effect may vary depending on the levels of fatigue experienced by
+the participants.
+
+**Codebook:**   
+
+- `sub_id`: Subject ID, values: 1-40
+- `item_id`: Item ID, values: 1-50
+- `congruence`: Indicator of whether facial expression and voie tone are consistent, values: 0.5 = Congruent signals, -0.5 = Incongruent signals 
+- `attend`: Type of cue that participant focuses on, values: 0.5 = Attending to the voice, -0.5 = Attending to the face
+- `fatigue`: Self-reported measure of fatigue, values: 1-100
+- `rt`: Reaction time of participant to identify emotion after watching a video, values: 359-932 milliseconds
+
+> Higher numbers indicate greater fatigue levels 
+
+```{r}
+#| message: false
+
+options(conflicts.policy = "depends.ok")
+
+library(tidyverse)
+library(skimr)
+library(Matrix, exclude = c("expand", "pack", "unpack"))
+library(lme4)
+library(car, exclude = c("recode", "some"))
+library(effects)
+library(effectsize)
+
+path_data <- "homework/data"
+```
+
+## 1. Load the data (hw_12_data.csv) and inspect the data
+
+```{r}
+d <- read.csv(here::here(path_data, "hw_12_data.csv")) |> janitor::clean_names()
+skim(d)
+```
+
+## 2. Center IVs as needed and fit an appropriate LMEM that models interaction between `congruence` and `fatigue`. 
+
+```{r}
+d <- d |> 
+  mutate(
+    congruence_c = scale(congruence, center = TRUE, scale = FALSE),
+    fatigue_c = scale(fatigue, center = TRUE, scale = FALSE)
+  )
+
+m_1 <- lmer(rt ~ congruence_c * fatigue_c + 
+             (congruence_c * fatigue_c | sub_id) +
+             (congruence_c * fatigue_c | item_id), data = d, verbose = FALSE,
+           control = lmerControl(optCtrl = list(maxeval = 1000)))
+
+summary(m_1)
+```
+
+**For learning purposes, let's now pretend the model fitted above didn't converge. We will now perform some of the checks as seen in the lecture that can help us fix the non-convergence issues for fitting LMEMs**
+
+## 3. Make sure all your IVs are centered (reduces multicollinearity)
+
+```{r}
+d <- d |> 
+   mutate(
+     congruence_c = scale(congruence, center = TRUE, scale = FALSE),
+     fatigue_c = scale(fatigue, center = TRUE, scale = FALSE)
+   )
+```
+
+## 4.	Increase the numer of iterations. Don't fit any models here; just specify the model you would want to run. 
+
+m_1 <- lmer(rt ~ congruence_c * fatigue_c + 
+            (congruence_c * fatigue_c | sub_id) +
+            (congruence_c * fatigue_c | item_id), data = d, verbose = FALSE,
+           control = lmerControl(optCtrl = list(maxeval = 5000)))  
+
+## 5. Give the model better starting values 
+
+```{r}
+st_values <- getME(m_1, name = "theta")
+
+m_2 <- lmer(rt ~ congruence_c * fatigue_c + 
+            (congruence_c * fatigue_c | sub_id) +
+            (congruence_c * fatigue_c | item_id), 
+            data = d, verbose = FALSE,
+            control = lmerControl(optCtrl = list(maxeval = 1000)),
+            start = st_values)
+```
+
+## 6.	Check whether the nonconvergence is due to the presence of a few subjects (or items) with a small number of observations in particular cells.
+
+```{r}
+obs_per_sub <- d |> 
+  group_by(sub_id) |> 
+  summarise(obs_count = n())
+
+summary(obs_per_sub$obs_count)
+
+obs_per_item <- d |> 
+  group_by(item_id) |> 
+  summarise(obs_count = n())
+
+summary(obs_per_item$obs_count)
+
+small_obs_subs <- obs_per_sub |> 
+  filter(obs_count < 5)
+
+small_obs_items <- obs_per_item |> 
+  filter(obs_count < 5)
+```
+
+## 7.	Remove random effects for covariates (as long as the interactions between the covariates and the predictors of interest are not in the model). Consider, for instance, that ‘fatigue’ is not of importance in our analysis.
+
+```{r}
+m_3 <- lmer(rt ~ congruence_c * fatigue_c + 
+            (congruence_c * fatigue_c | sub_id) + 
+            (congruence_c * fatigue_c | item_id), 
+            data = d, verbose = TRUE)
+```
+
+## 8. Simplify the Model Structure: If your key hypothesis focuses on the effect of certain IVs (or their interactions), you might want to drop some of the IVs or simplify the random effects. Or remove all but one predictor in a set of highly correlated predictors. Consider, for instance, that ‘fatigue’ is not of importance in our analysis.
+
+```{r}
+m_4 <- lmer(rt ~ congruence_c * fatigue_c + 
+            (congruence_c * fatigue_c | sub_id) + 
+            (congruence_c * fatigue_c | item_id), 
+            data = d, verbose = TRUE)
+```
+
+## 9. Test Fixed Effects Separately: If the goal is to test two fixed effects, X1 and X2, but not their interaction, estimate two LMEMs, one with both fixed effects but only the random slopes of X1 (to test X1) and one with both fixed effects but only the random slopes of X2 (to test X2).
+
+```{r}
+m_congruence <- lmer(rt ~ congruence_c + fatigue_c + 
+                     (congruence_c | sub_id) + 
+                     (congruence_c | item_id), 
+                     data = d, verbose = TRUE)
+
+m_fatigue <- lmer(rt ~ congruence_c + fatigue_c + 
+                  (fatigue_c | sub_id) + 
+                  (fatigue_c | item_id), 
+                  data = d, verbose = TRUE)
+```
+
+## 10. Remove Lower-Order Random Slopes: If you have a design with two or more within-unit IVs and their interactions, remove the by-unit random slopes for the within-unit IVs and the lower-order interactions, but do not remove the by-unit random slope for the highest-order interaction between the within-units IVs (Barr, 2013, Frontiers).
+
+```{r}
+m_5 <- lmer(rt ~ congruence_c * fatigue_c + 
+             (congruence_c:fatigue_c | sub_id) + 
+             (congruence_c:fatigue_c | item_id), 
+             data = d, verbose = TRUE)
+```
+
+## 11. Count the number of parameters for LMEMs fitted in Questions 2, 7 and 10 above. Briefly explain the reasoning for your counting of the parameters.
+
+Question 2: 12 parameters
+Fixed effects: 3 parameters
+- Congruence_c
+- Fatigue_c
+- Congruence_c * Fatigue_c 
+
+Random effects: 8 parameters
+- 3 random slopes for subject_id (Congruence, Fatigue, Congruence:Fatigue) + 1 intercept 
+- 3 random slopes for item_id (Congruence, Fatigue, Congruence:Fatigue) + 1 intercept 
+
+- 1 error term (1 parameter)
+
+Question 7: 12 parameters
+
+Fixed effects: 3 parameters
+- Congruence
+- Fatigue
+- Congruence * Fatigue
+
+Random effects: 8 parameters
+- 3 random slopes for subject_id (Congruence, Fatigue, Congruence:Fatigue) + 1 intercept
+- 3 random slopes for item_id (Congruence, Fatigue, Congruence:Fatigue) + 1 intercept
+
+- 1 error term (1 parameter)
+
+Question 10: 8 parameters 
+
+Fixed effects: 3 parameters
+- Congruence
+- Fatigue
+- Congruence * Fatigue
+
+Random effects: 4 parameters
+- 1 random slope for subject_id (Congruence:Fatigue) + 1 intercept
+- 1 random slope for item_id (Congruence:Fatigue) + 1 intercept
+
+- 1 error term (1 parameter) 
+
+## 12. Please document questions where you used ChatGPT or other generative LLMs for assistance. Include the corresponding homework question number, the input question you provided to the LLM, and the response you received. If you did not use any generative LLMs for this homework, please indicate that below.
+
+None. 
+
+## 13. How long did this assignment take you to complete?
+
+4 hours. 
+
